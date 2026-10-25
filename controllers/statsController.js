@@ -4,6 +4,10 @@ const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 
 const getStats = asyncHandler(async (req, res) => {
+  const dailySalesStart = new Date();
+  dailySalesStart.setUTCHours(0, 0, 0, 0);
+  dailySalesStart.setUTCDate(dailySalesStart.getUTCDate() - 13);
+
   const [revenueAgg, ordersByStatus, topProducts, categorySales, dailySales, lowStockProducts, totalCustomers, totalProducts, recentOrders] =
     await Promise.all([
       Order.aggregate([
@@ -53,7 +57,7 @@ const getStats = asyncHandler(async (req, res) => {
         {
           $match: {
             status: { $ne: 'cancelled' },
-            createdAt: { $gte: new Date(Date.now() - 13 * 24 * 60 * 60 * 1000) },
+            createdAt: { $gte: dailySalesStart },
           },
         },
         {
@@ -74,6 +78,14 @@ const getStats = asyncHandler(async (req, res) => {
       Order.find().sort({ createdAt: -1 }).limit(6),
     ]);
 
+  const dailySalesByDate = new Map(dailySales.map((day) => [day._id, day]));
+  const completeDailySales = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(dailySalesStart);
+    date.setUTCDate(date.getUTCDate() + index);
+    const dateKey = date.toISOString().slice(0, 10);
+    return dailySalesByDate.get(dateKey) || { _id: dateKey, revenue: 0, orders: 0 };
+  });
+
   const summary = revenueAgg[0] || { totalRevenue: 0, totalOrders: 0, averageOrderValue: 0 };
   const statusMap = { pending: 0, confirmed: 0, shipped: 0, delivered: 0, cancelled: 0 };
   ordersByStatus.forEach((s) => {
@@ -93,7 +105,7 @@ const getStats = asyncHandler(async (req, res) => {
       ordersByStatus: statusMap,
       topProducts,
       categorySales,
-      dailySales,
+      dailySales: completeDailySales,
       lowStockProducts,
       recentOrders,
     },
